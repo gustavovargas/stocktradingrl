@@ -1,0 +1,9 @@
+/.idea/
+/.ipynb_checkpoints
+
+/projects/*
+
+/data/*.csv
+!/data/AXP.csv
+
+Untitled.ipynb
