@@ -29,11 +29,11 @@ def get_data(path, index_col=0, train_pct=0.7):
     sep = math.floor(len(data) * train_pct)
     train_data = data.iloc[:sep, :]
     test_data = data.iloc[sep:, :]
-    return train_data, test_data
+    return train_data.values, test_data.values
 
 
-def get_performance(env, agent, train_data=True, loc=0, training=False):
-    state = env.reset(train_data=train_data, loc=loc)
+def get_performance(env, agent, train_data=True, training=False, batch_size=12, overlap=20):
+    state = env.reset(train_data=train_data, batch_size=batch_size, overlap=overlap)
     done = False
     while not done:
         action = agent.get_action(state, use_random=True)
@@ -93,9 +93,9 @@ class QNAgent:
         action will be the index of the highest q_value. Use np.argmax to take that."""
 
         q_state = self.model.q_state(self.model.q_second(self.model.q_first(state)))
-        action_greedy = np.argmax(q_state)
+        action_greedy = np.argmax(q_state, axis=1)
         if use_random:
-            action_random = random.choice(range(self.action_size))
+            action_random = [random.choice(range(self.action_size)) for i in range(len(state))]
             return action_random if random.random() < 0.90 else action_greedy
         else:
             return action_greedy
@@ -103,7 +103,7 @@ class QNAgent:
     def train(self, experience: tuple):
         state, action, next_state, reward, done = (exp for exp in experience)
         q_next = self.model.q_state(self.model.q_second(self.model.q_first(state)))
-        q_target = reward + self.discount_rate * np.max(q_next)
+        q_target = reward + self.discount_rate * np.max(q_next, axis=1)
 
         with tf.GradientTape() as tape:
             q_action = self.model([state, action, q_target])
@@ -112,7 +112,7 @@ class QNAgent:
         gradients = tape.gradient(loss, variables)
         self.optimizer.apply_gradients(zip(gradients, variables))
 
-    def load(self, path:str):
+    def load(self, path: str):
         self.model.load_weights(path)
 
 
@@ -135,7 +135,7 @@ def plot_stocks_trading_performance(data, save_name, color='royalblue', alpha=0.
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Stock Trading with Q Learning')
     parser.add_argument('-name_file_data', default='AXP.csv', type=str)
-    parser.add_argument('-name_project', default='AXP2', type=str)
+    parser.add_argument('-name_project', default='AXP_batch', type=str)
     parser.add_argument('-env_name', type=str, default='StockEnv-v0')
     parser.add_argument('-num_episodes', type=int, default=100000)
     parser.add_argument('-len_obs', type=int, default=50)
@@ -172,7 +172,7 @@ if __name__ == '__main__':
         test_statistics = pd.DataFrame()
 
     for ep in range(init_ep, args.num_episodes):
-        get_performance(env, agent, train_data=True, training=True)
+        get_performance(env, agent, train_data=True, training=True, batch_size=12)
         env.render(ep)
 
         if (ep % args.interval == 0) and not((args.load_model==True) and (ep == args.epoch_to_load)):
@@ -182,12 +182,12 @@ if __name__ == '__main__':
             results_train = np.empty(shape=(0, 3))
             results_test = np.empty(shape=(0, 3))
 
-            for i in range(env.len_obs, len(env.eval_data) - env.len_window, overlap):
-                cagr_train, vol_train = get_performance(env, agent, train_data=True, training=False)
-                results_train = np.concatenate([results_train, np.array([[ep, cagr_train, vol_train], ])], axis=0)
+            size_test = ((len(env.eval_data)-env.len_obs-env.len_window) // overlap)+1
+            cagr_train, vol_train = get_performance(env, agent, train_data=True, training=False, batch_size=size_test)
+            results_train = np.array([np.tile(ep, size_test), cagr_train, vol_train]).transpose()
 
-                cagr_test, vol_test = get_performance(env, agent, train_data=False, loc=i, training=False)
-                results_test = np.concatenate([results_test, np.array([[ep, cagr_test, vol_test], ])], axis=0)
+            cagr_test, vol_test = get_performance(env, agent, train_data=False, training=False, overlap=overlap, batch_size=size_test)
+            results_test = np.array([np.tile(ep, size_test), cagr_test, vol_test]).transpose()
 
             train_statistics = pd.concat([train_statistics, pd.DataFrame(results_train, columns=['epoch', 'cagr','volatility'])])
             train_statistics.to_csv(path_stats+'train.csv', index=False)
