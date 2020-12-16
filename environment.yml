@@ -1,0 +1,12 @@
+﻿name: stock_trading_env
+channels:
+  - defaults
+dependencies:
+  - python
+  - pip
+  - tensorflow-gpu
+  - numpy
+  - pandas
+  - dateparser
+  - matplotlib
+  - seaborn
